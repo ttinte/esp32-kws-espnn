@@ -1,0 +1,25 @@
+.pio/
+
+# PlatformIO / build artifacts
+*.bin
+*.elf
+*.map
+
+# VS Code local workspace files
+.vscode/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Python cache from training / helper scripts
+__pycache__/
+*.pyc
+
+kws_voice/
