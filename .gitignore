@@ -28,7 +28,6 @@ venv/
 sdkconfig
 sdkconfig.old
 
-# Ignore all KWS assets by default; keep only reusable scripts
 kws_voice/*
 !kws_voice/scripts/
 !kws_voice/scripts/**
