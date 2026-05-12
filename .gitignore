@@ -1,12 +1,12 @@
-.pio/
-
 # PlatformIO / build artifacts
+.pio/
 *.bin
 *.elf
 *.map
 
-# VS Code local workspace files
+# IDE / editor local files
 .vscode/
+.idea/
 
 # OS/editor noise
 .DS_Store
@@ -18,8 +18,22 @@ Thumbs.db
 # Logs
 *.log
 
-# Python cache from training / helper scripts
+# Python cache / virtual envs
 __pycache__/
 *.pyc
+.venv/
+venv/
 
-kws_voice/
+# Local ESP-IDF noise
+sdkconfig
+sdkconfig.old
+
+# Ignore all KWS assets by default; keep only reusable scripts
+kws_voice/*
+!kws_voice/scripts/
+!kws_voice/scripts/**
+kws_voice/scripts/__pycache__/
+
+# If needed later, unignore specific generated/public-safe files explicitly
+# (for example model source regenerated from a clean dataset you own)
+# !kws_voice/some_path
