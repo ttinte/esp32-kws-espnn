@@ -33,7 +33,3 @@ kws_voice/*
 !kws_voice/scripts/
 !kws_voice/scripts/**
 kws_voice/scripts/__pycache__/
-
-# If needed later, unignore specific generated/public-safe files explicitly
-# (for example model source regenerated from a clean dataset you own)
-# !kws_voice/some_path
