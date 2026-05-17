@@ -1,34 +1,11 @@
-# PlatformIO / build artifacts
-.pio/
-*.bin
-*.elf
-*.map
-
-# IDE / editor local files
-.vscode/
-.idea/
-
-# OS/editor noise
-.DS_Store
-Thumbs.db
-*~
-*.swp
-*.swo
-
-# Logs
-*.log
-
-# Python cache / virtual envs
-__pycache__/
-*.pyc
-.venv/
-venv/
-
-# Local ESP-IDF noise
+# ESP-IDF artifacts
+build/
 sdkconfig
-sdkconfig.old
 
+# Editor/OS
+.vscode/
+
+# Keep KWS scripts
 kws_voice/*
 !kws_voice/scripts/
 !kws_voice/scripts/**
-kws_voice/scripts/__pycache__/
