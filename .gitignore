@@ -1,9 +1,17 @@
 # ESP-IDF artifacts
 build/
 sdkconfig
+sdkconfig.old
+dependencies.lock
 
-# Editor/OS
+# Managed components (downloaded by ESP-IDF component manager)
+managed_components/
+
+# Editor
 .vscode/
+
+# Claude Code project instructions
+CLAUDE.md
 
 # Keep KWS scripts
 kws_voice/*
