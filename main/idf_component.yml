@@ -1,2 +1,3 @@
 dependencies:
   espressif/esp-tflite-micro: "*"
+  espressif/esp-nn: "*"

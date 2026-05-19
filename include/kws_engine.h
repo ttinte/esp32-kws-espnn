@@ -31,6 +31,7 @@ struct Result {
 bool init();
 bool poll(Result &result);
 const char *status();
+const char *backendMode();
 void setPaused(bool paused);
 bool isPaused();
 

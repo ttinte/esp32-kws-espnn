@@ -4,7 +4,9 @@
 
 #include "app_state.h"
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "kws_engine.h"
 
 namespace voice_service {
@@ -12,6 +14,8 @@ namespace {
 using namespace app_state;
 
 const char *TAG = "voice_service";
+constexpr uint32_t kKwsLogEveryN = 10;
+constexpr uint32_t kPerfLogEveryN = 10;
 
 void resetWakeConfirmation() {
   pendingWakeLabel = "";
@@ -105,17 +109,34 @@ void update() {
     return;
   }
 
-  ESP_LOGI(TAG,
-           "[KWS #%lu] label=%s conf=%.3f wake=%d cmd=%s top2=%s:%.3f top3=%s:%.3f",
-           static_cast<unsigned long>(result.inferenceCount),
-           result.label,
-           result.confidence,
-           result.isWakeWord,
-           result.hasCommand ? result.command : "none",
-           result.top2Label ? result.top2Label : "-",
-           result.top2Score,
-           result.top3Label ? result.top3Label : "-",
-           result.top3Score);
+  if (result.inferenceCount % kKwsLogEveryN == 0 || result.isWakeWord || result.hasCommand) {
+    ESP_LOGI(TAG,
+             "[KWS #%lu] label=%s conf=%.3f wake=%d cmd=%s top2=%s:%.3f top3=%s:%.3f",
+             static_cast<unsigned long>(result.inferenceCount),
+             result.label,
+             result.confidence,
+             result.isWakeWord,
+             result.hasCommand ? result.command : "none",
+             result.top2Label ? result.top2Label : "-",
+             result.top2Score,
+             result.top3Label ? result.top3Label : "-",
+             result.top3Score);
+  }
+
+  if (result.inferenceCount % kPerfLogEveryN == 0) {
+    ESP_LOGI(TAG,
+             "[Perf #%lu][%s] read=%lums mel=%lums invoke=%lums total=%lums peak=%d rms=%.1f heap=%u min_heap=%u",
+             static_cast<unsigned long>(result.inferenceCount),
+             kws_engine::backendMode(),
+             static_cast<unsigned long>(result.readMs),
+             static_cast<unsigned long>(result.melMs),
+             static_cast<unsigned long>(result.invokeMs),
+             static_cast<unsigned long>(result.totalMs),
+             static_cast<int>(result.audioPeak),
+             result.audioRms,
+             static_cast<unsigned int>(esp_get_free_heap_size()),
+             static_cast<unsigned int>(esp_get_minimum_free_heap_size()));
+  }
 
   if (!wakeWordActive) {
     if (confirmWake(result)) {

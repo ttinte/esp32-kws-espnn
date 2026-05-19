@@ -11,11 +11,11 @@ struct ClassAction {
 };
 
 constexpr ClassAction kClassActions[] = {
-    {"no", "fan_off", 0.80f},
-    {"off", "light_off", 0.35f},
-    {"on", "light_on", 0.35f},
-    {"yes", "fan_on", 0.80f},
-    {"zero", "", 0.80f},
+    {"no", "fan_off", 0.78f},
+    {"off", "light_off", 0.50f},
+    {"on", "light_on", 0.50f},
+    {"yes", "fan_on", 0.78f},
+    {"zero", "", 0.72f},
     {"other", "", 1.10f},
 };
 

@@ -2,6 +2,7 @@
 build/
 sdkconfig
 sdkconfig.old
+sdkconfig.defaults
 dependencies.lock
 
 # Managed components (downloaded by ESP-IDF component manager)
