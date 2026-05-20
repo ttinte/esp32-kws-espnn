@@ -7,6 +7,9 @@
 #include "driver/i2s.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "kws_model_config.h"
 #include "model_tiny.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -135,6 +138,18 @@ void buildMelWeights() {
   }
 }
 
+// Ring buffer: 2 seconds of audio. micTask writes continuously,
+// poll() snapshots the most recent 1 second for each inference cycle.
+constexpr size_t kRingBufSamples = AUDIO_SAMPLE_RATE * 2;
+constexpr int kMicSampleShift = 12;
+constexpr TickType_t kPausedTaskDelay = pdMS_TO_TICKS(100);
+
+int16_t ringBuffer[kRingBufSamples];
+volatile size_t ringWritePos = 0;
+volatile bool ringPrimed = false;
+SemaphoreHandle_t ringMutex = nullptr;
+TaskHandle_t micTaskHandle = nullptr;
+
 bool initI2s() {
   i2s_config_t i2sConfig = {};
   i2sConfig.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX);
@@ -219,22 +234,61 @@ void quantizeInput() {
 }
 
 bool readAudio() {
-  int32_t raw[512];
-  size_t total = 0;
-  while (total < AUDIO_DURATION_SAMPLES) {
-    size_t bytesRead = 0;
-    if (i2s_read(I2S_NUM_0, raw, sizeof(raw), &bytesRead, pdMS_TO_TICKS(1000)) != ESP_OK || bytesRead == 0) {
-      return false;
-    }
-    const size_t samples = bytesRead / sizeof(int32_t);
-    for (size_t i = 0; i < samples && total < AUDIO_DURATION_SAMPLES; ++i) {
-      int32_t sample = raw[i] >> 12;
-      if (sample > 32767) sample = 32767;
-      if (sample < -32768) sample = -32768;
-      audioBuffer[total++] = static_cast<int16_t>(sample);
-    }
+  if (!ringPrimed) {
+    return false;
   }
+
+  xSemaphoreTake(ringMutex, portMAX_DELAY);
+  const size_t writePos = ringWritePos;
+  size_t start;
+  if (writePos >= AUDIO_DURATION_SAMPLES) {
+    start = writePos - AUDIO_DURATION_SAMPLES;
+  } else {
+    start = kRingBufSamples - (AUDIO_DURATION_SAMPLES - writePos);
+  }
+
+  if (start + AUDIO_DURATION_SAMPLES <= kRingBufSamples) {
+    memcpy(audioBuffer, ringBuffer + start, AUDIO_DURATION_SAMPLES * sizeof(int16_t));
+  } else {
+    const size_t firstPart = kRingBufSamples - start;
+    memcpy(audioBuffer, ringBuffer + start, firstPart * sizeof(int16_t));
+    memcpy(audioBuffer + firstPart, ringBuffer,
+           (AUDIO_DURATION_SAMPLES - firstPart) * sizeof(int16_t));
+  }
+  xSemaphoreGive(ringMutex);
   return true;
+}
+
+void micTask(void *) {
+  int32_t raw[512];
+  while (true) {
+    if (kwsPaused) {
+      vTaskDelay(kPausedTaskDelay);
+      continue;
+    }
+
+    size_t bytesRead = 0;
+    const esp_err_t err =
+        i2s_read(I2S_NUM_0, raw, sizeof(raw), &bytesRead, pdMS_TO_TICKS(1000));
+    if (err != ESP_OK || bytesRead == 0) {
+      vTaskDelay(pdMS_TO_TICKS(1));
+      continue;
+    }
+
+    const size_t samples = bytesRead / sizeof(int32_t);
+    xSemaphoreTake(ringMutex, portMAX_DELAY);
+    for (size_t i = 0; i < samples; ++i) {
+      int32_t sample = raw[i] >> kMicSampleShift;
+      if (sample > 32767) sample = 32767;
+      else if (sample < -32768) sample = -32768;
+      ringBuffer[ringWritePos] = static_cast<int16_t>(sample);
+      ringWritePos = (ringWritePos + 1) % kRingBufSamples;
+    }
+    if (!ringPrimed && ringWritePos >= AUDIO_DURATION_SAMPLES) {
+      ringPrimed = true;
+    }
+    xSemaphoreGive(ringMutex);
+  }
 }
 
 const char *findLabelByScore(float *probs, size_t *idx) {
@@ -263,6 +317,23 @@ bool init() {
     snprintf(statusText, sizeof(statusText), "I2S init failed");
     return false;
   }
+
+  ringMutex = xSemaphoreCreateMutex();
+  if (!ringMutex) {
+    snprintf(statusText, sizeof(statusText), "ring mutex failed");
+    return false;
+  }
+  ringWritePos = 0;
+  ringPrimed = false;
+  memset(ringBuffer, 0, sizeof(ringBuffer));
+
+  BaseType_t created = xTaskCreatePinnedToCore(
+      micTask, "kws_mic", 4096, nullptr, 5, &micTaskHandle, 0);
+  if (created != pdPASS) {
+    snprintf(statusText, sizeof(statusText), "mic task failed");
+    return false;
+  }
+
   initialized = true;
   snprintf(statusText, sizeof(statusText), "KWS ready");
   ESP_LOGI(TAG, "KWS init done, backend=%s", kBackendMode);
@@ -274,7 +345,9 @@ bool poll(Result &result) {
 
   uint64_t t0 = esp_timer_get_time();
   if (!readAudio()) {
-    snprintf(statusText, sizeof(statusText), "I2S read failed");
+    uint32_t readMs = static_cast<uint32_t>((esp_timer_get_time() - t0) / 1000);
+    lastResult.readMs = readMs;
+    snprintf(statusText, sizeof(statusText), "ring not primed");
     return false;
   }
   uint32_t readMs = static_cast<uint32_t>((esp_timer_get_time() - t0) / 1000);
