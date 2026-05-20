@@ -5,6 +5,7 @@
 
 #include "app_state.h"
 #include "driver/i2s.h"
+#include "dsps_fft2r.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -36,8 +37,9 @@ int16_t audioBuffer[AUDIO_DURATION_SAMPLES];
 float hannWindow[MEL_FRAME_LEN];
 float melWeights[MEL_BINS * kFftBins];
 float fftPower[kFftBins];
-float fftReal[MEL_FFT_LEN];
-float fftImag[MEL_FFT_LEN];
+__attribute__((aligned(16))) float fftCplx[MEL_FFT_LEN * 2];
+float fftTwiddleRe[MEL_FFT_LEN / 2];
+float fftTwiddleIm[MEL_FFT_LEN / 2];
 float featureBuffer[MEL_N_FRAMES * MEL_BINS];
 int8_t quantizedFeature[MEL_N_FRAMES * MEL_BINS];
 alignas(16) uint8_t tensorArena[KWS_TENSOR_ARENA_BYTES];
@@ -57,52 +59,17 @@ char statusText[64] = "KWS not started";
 float hzToMel(float hz) { return 2595.0f * log10f(1.0f + hz / 700.0f); }
 float melToHz(float mel) { return 700.0f * (powf(10.0f, mel / 2595.0f) - 1.0f); }
 
-void fftInPlace(float *real, float *imag, size_t n) {
-  size_t j = 0;
-  for (size_t i = 1; i < n; ++i) {
-    size_t bit = n >> 1;
-    while (j & bit) {
-      j ^= bit;
-      bit >>= 1;
-    }
-    j ^= bit;
-    if (i < j) {
-      const float tr = real[i];
-      real[i] = real[j];
-      real[j] = tr;
-      const float ti = imag[i];
-      imag[i] = imag[j];
-      imag[j] = ti;
-    }
-  }
-
-  for (size_t len = 2; len <= n; len <<= 1) {
-    const float angle = -2.0f * kPi / static_cast<float>(len);
-    const float wlenR = cosf(angle);
-    const float wlenI = sinf(angle);
-    for (size_t i = 0; i < n; i += len) {
-      float wr = 1.0f;
-      float wi = 0.0f;
-      for (size_t k = 0; k < len / 2; ++k) {
-        const size_t u = i + k;
-        const size_t v = i + k + len / 2;
-        const float vr = real[v] * wr - imag[v] * wi;
-        const float vi = real[v] * wi + imag[v] * wr;
-        real[v] = real[u] - vr;
-        imag[v] = imag[u] - vi;
-        real[u] += vr;
-        imag[u] += vi;
-        const float nextWr = wr * wlenR - wi * wlenI;
-        wi = wr * wlenI + wi * wlenR;
-        wr = nextWr;
-      }
-    }
-  }
-}
-
 void buildHannWindow() {
   for (size_t i = 0; i < MEL_FRAME_LEN; ++i) {
     hannWindow[i] = 0.5f - 0.5f * cosf(2.0f * kPi * static_cast<float>(i) / static_cast<float>(MEL_FRAME_LEN));
+  }
+}
+
+void buildFftTwiddle() {
+  for (size_t k = 0; k < MEL_FFT_LEN / 2; ++k) {
+    const float angle = -2.0f * kPi * static_cast<float>(k) / static_cast<float>(MEL_FFT_LEN);
+    fftTwiddleRe[k] = cosf(angle);
+    fftTwiddleIm[k] = sinf(angle);
   }
 }
 
@@ -200,17 +167,42 @@ bool initInterpreter() {
 }
 
 void computeLogMel(const int16_t *samples) {
+  constexpr size_t halfN = MEL_FFT_LEN / 2;
   for (size_t frame = 0; frame < MEL_N_FRAMES; ++frame) {
     const size_t offset = frame * MEL_FRAME_STEP;
-    memset(fftReal, 0, sizeof(fftReal));
-    memset(fftImag, 0, sizeof(fftImag));
-    for (size_t i = 0; i < MEL_FRAME_LEN; ++i) {
-      fftReal[i] = (static_cast<float>(samples[offset + i]) / 32768.0f) * hannWindow[i];
+    for (size_t k = 0; k < halfN; ++k) {
+      fftCplx[2 * k]     = (static_cast<float>(samples[offset + 2 * k])     / 32768.0f) * hannWindow[2 * k];
+      fftCplx[2 * k + 1] = (static_cast<float>(samples[offset + 2 * k + 1]) / 32768.0f) * hannWindow[2 * k + 1];
     }
-    fftInPlace(fftReal, fftImag, MEL_FFT_LEN);
-    for (size_t bin = 0; bin < kFftBins; ++bin) {
-      fftPower[bin] = fftReal[bin] * fftReal[bin] + fftImag[bin] * fftImag[bin];
+    dsps_fft2r_fc32(fftCplx, halfN);
+    dsps_bit_rev_fc32(fftCplx, halfN);
+
+    const float c0re = fftCplx[0];
+    const float c0im = fftCplx[1];
+    fftPower[0]     = (c0re + c0im) * (c0re + c0im);
+    fftPower[halfN] = (c0re - c0im) * (c0re - c0im);
+
+    for (size_t k = 1; k < halfN; ++k) {
+      const float ckRe = fftCplx[2 * k];
+      const float ckIm = fftCplx[2 * k + 1];
+      const float cmRe = fftCplx[2 * (halfN - k)];
+      const float cmIm = fftCplx[2 * (halfN - k) + 1];
+
+      const float aRe = 0.5f * (ckRe + cmRe);
+      const float aIm = 0.5f * (ckIm - cmIm);
+      const float bRe = 0.5f * (ckRe - cmRe);
+      const float bIm = 0.5f * (ckIm + cmIm);
+
+      const float twRe = fftTwiddleRe[k];
+      const float twIm = fftTwiddleIm[k];
+      const float wbRe = twRe * bRe - twIm * bIm;
+      const float wbIm = twRe * bIm + twIm * bRe;
+
+      const float xRe = aRe + wbIm;
+      const float xIm = aIm - wbRe;
+      fftPower[k] = xRe * xRe + xIm * xIm;
     }
+
     for (size_t mel = 0; mel < MEL_BINS; ++mel) {
       float melEnergy = 0.0f;
       const float *weights = melWeights + mel * kFftBins;
@@ -308,7 +300,12 @@ const char *findLabelByScore(float *probs, size_t *idx) {
 
 bool init() {
   buildHannWindow();
+  buildFftTwiddle();
   buildMelWeights();
+  if (dsps_fft2r_init_fc32(NULL, CONFIG_DSP_MAX_FFT_SIZE) != ESP_OK) {
+    snprintf(statusText, sizeof(statusText), "FFT init failed");
+    return false;
+  }
   if (!initInterpreter()) {
     snprintf(statusText, sizeof(statusText), "TFLM init failed");
     return false;
@@ -403,7 +400,9 @@ bool poll(Result &result) {
     if (s > audioMax) audioMax = s;
     sumSquares += static_cast<uint64_t>(static_cast<int32_t>(s) * static_cast<int32_t>(s));
   }
-  const int16_t audioPeak = audioMax > -audioMin ? audioMax : static_cast<int16_t>(-audioMin);
+  const int32_t negMin = -static_cast<int32_t>(audioMin);
+  const int32_t peak32 = audioMax > negMin ? audioMax : negMin;
+  const int16_t audioPeak = peak32 > 32767 ? 32767 : static_cast<int16_t>(peak32);
   const float audioRms = sqrtf(static_cast<float>(sumSquares) / static_cast<float>(AUDIO_DURATION_SAMPLES));
 
   result.audioMin = audioMin;
