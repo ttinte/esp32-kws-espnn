@@ -34,7 +34,7 @@ constexpr const char *WAKE_WORD_LABEL = "zero";
 constexpr uint8_t WAKE_CONFIRMATION_FRAMES = 1;
 constexpr uint8_t COMMAND_CONFIRMATION_FRAMES = 1;
 constexpr uint32_t WAKE_LISTEN_WINDOW_MS = 7500;
-constexpr uint32_t WAKE_COOLDOWN_MS = 120;
+constexpr uint32_t WAKE_COOLDOWN_MS = 300;
 
 extern bool wakeWordActive;
 extern uint32_t wakeWordActivatedMs;
