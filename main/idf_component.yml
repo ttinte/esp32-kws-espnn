@@ -2,3 +2,4 @@ dependencies:
   espressif/esp-tflite-micro: "*"
   espressif/esp-nn: "*"
   espressif/esp-dsp: "*"
+  espressif/led_strip: "^2.5.0"

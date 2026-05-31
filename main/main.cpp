@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "kws_engine.h"
+#include "led_indicator.h"
 #include "voice_service.h"
 
 namespace app_state {
@@ -30,6 +31,8 @@ extern "C" void app_main(void) {
   gpio_set_level(static_cast<gpio_num_t>(app_state::LIGHT_PIN), 0);
   gpio_set_level(static_cast<gpio_num_t>(app_state::FAN_PIN), 0);
 
+  led_indicator::init();
+
   if (!kws_engine::init()) {
     ESP_LOGE("main", "KWS init failed: %s", kws_engine::status());
     return;
@@ -39,6 +42,7 @@ extern "C" void app_main(void) {
 
   while (true) {
     voice_service::update();
+    led_indicator::update();
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }

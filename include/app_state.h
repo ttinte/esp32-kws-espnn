@@ -18,6 +18,7 @@ constexpr uint8_t SHIFT595_LATCH_PIN = 18;
 constexpr uint8_t I2S_BCK_PIN = 4;
 constexpr uint8_t I2S_WS_PIN = 5;
 constexpr uint8_t I2S_SD_PIN = 6;
+constexpr uint8_t RGB_LED_PIN = 48;
 
 constexpr uint32_t AUDIO_SAMPLE_RATE = 16000;
 constexpr size_t AUDIO_DURATION_SAMPLES = 16000;
