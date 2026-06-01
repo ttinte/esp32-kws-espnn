@@ -51,6 +51,8 @@ TfLiteTensor *outputTensor = nullptr;
 
 bool initialized = false;
 bool kwsPaused = false;
+bool wakeVoteRing[WAKE_VOTE_WINDOW] = {false};
+size_t wakeVotePos = 0;
 Result lastResult{};
 bool hasPendingResult = false;
 uint32_t inferenceCount = 0;
@@ -386,7 +388,15 @@ bool poll(Result &result) {
   result.confidence = probs[bestIdx];
   result.wakeScore = 0.0f;
   result.hasCommand = action.command[0] != '\0' && probs[bestIdx] >= action.threshold;
-  result.isWakeWord = strcmp(bestLabel, WAKE_WORD_LABEL) == 0 && probs[bestIdx] >= action.threshold;
+
+  const bool wakeFrame = strcmp(bestLabel, WAKE_WORD_LABEL) == 0 && probs[bestIdx] >= action.threshold;
+  wakeVoteRing[wakeVotePos] = wakeFrame;
+  wakeVotePos = (wakeVotePos + 1) % WAKE_VOTE_WINDOW;
+  uint8_t wakeVotes = 0;
+  for (size_t i = 0; i < WAKE_VOTE_WINDOW; ++i) {
+    if (wakeVoteRing[i]) ++wakeVotes;
+  }
+  result.isWakeWord = wakeVotes >= WAKE_VOTE_MIN;
   result.top2Label = kws_model_config::kClassActions[top2].label;
   result.top2Score = probs[top2];
   result.top3Label = kws_model_config::kClassActions[top3].label;

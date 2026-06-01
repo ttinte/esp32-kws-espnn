@@ -32,7 +32,9 @@ constexpr size_t KWS_TENSOR_ARENA_BYTES = 48 * 1024;
 
 constexpr const char *WAKE_WORD_LABEL = "zero";
 constexpr uint8_t WAKE_CONFIRMATION_FRAMES = 1;
-constexpr uint8_t COMMAND_CONFIRMATION_FRAMES = 1;
+constexpr uint8_t COMMAND_CONFIRMATION_FRAMES = 2;
+constexpr uint8_t WAKE_VOTE_WINDOW = 3;
+constexpr uint8_t WAKE_VOTE_MIN = 2;
 constexpr uint32_t WAKE_LISTEN_WINDOW_MS = 7500;
 constexpr uint32_t WAKE_COOLDOWN_MS = 300;
 
