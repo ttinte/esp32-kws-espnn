@@ -23,6 +23,16 @@ bool wakeSettled = false;
 uint32_t nowMs() { return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS); }
 }  // namespace app_state
 
+namespace {
+void kwsTask(void *) {
+  kws_engine::setPaused(false);
+  while (true) {
+    voice_service::update();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+}  // namespace
+
 extern "C" void app_main(void) {
   gpio_config_t io_conf = {};
   io_conf.mode = GPIO_MODE_OUTPUT;
@@ -38,10 +48,10 @@ extern "C" void app_main(void) {
     return;
   }
 
-  kws_engine::setPaused(false);
+
+  xTaskCreatePinnedToCore(kwsTask, "kws", 8192, nullptr, 5, nullptr, 1);
 
   while (true) {
-    voice_service::update();
     led_indicator::update();
     vTaskDelay(pdMS_TO_TICKS(20));
   }
