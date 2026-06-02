@@ -15,7 +15,7 @@ constexpr ClassAction kClassActions[] = {
     {"off", "light_off", 0.50f},
     {"on", "light_on", 0.50f},
     {"yes", "fan_on", 0.78f},
-    {"zero", "", 0.72f},
+    {"zero", "", 0.55f},
     {"other", "", 1.10f},
 };
 

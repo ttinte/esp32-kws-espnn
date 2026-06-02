@@ -17,3 +17,4 @@ CLAUDE.md
 kws_voice/*
 !kws_voice/scripts/
 !kws_voice/scripts/**
+__pycache__

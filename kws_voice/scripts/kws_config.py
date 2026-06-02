@@ -59,8 +59,10 @@ LOW_PEAK_THRESHOLD = 80
 CLIPPING_ABS_THRESHOLD = 32760
 CLIPPING_RATIO_THRESHOLD = 0.35
 
-NOISE_MIX_PROBABILITY = 0.35
-GAIN_MIN = 0.85
+# Far-field augmentation: ha gain manh de gia lap giong xa/nho (firmware KHONG co AGC),
+# tang xac suat tron nhieu de model quen tin hieu yeu + nhieu.
+NOISE_MIX_PROBABILITY = 0.55
+GAIN_MIN = 0.2
 GAIN_MAX = 1.15
 SHIFT_MAX_SAMPLES = 1600
 
@@ -68,5 +70,6 @@ MODEL_CLASSES = CLASS_NAMES
 CLASS_WEIGHT_MULTIPLIERS = {
     "off": 1.35,
     "on": 1.15,
+    "zero": 1.5,  # uu tien wake word, tach zero khoi no (zero<->no hay lan)
     OTHER_LABEL: 0.85,
 }

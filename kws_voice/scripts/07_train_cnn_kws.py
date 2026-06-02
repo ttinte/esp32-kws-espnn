@@ -144,7 +144,7 @@ def augment_wave_np(wave_np):
         noise_chunk = noise[start : start + N_SAMPLES]
         if len(noise_chunk) < N_SAMPLES:
             noise_chunk = np.pad(noise_chunk, (0, N_SAMPLES - len(noise_chunk)))
-        snr = np.random.uniform(0.05, 0.20)
+        snr = np.random.uniform(0.05, 0.35)
         wave_np = wave_np + snr * noise_chunk
 
     return wave_np.astype(np.float32)
@@ -321,7 +321,11 @@ def save_confusion_matrix_plot(cm, class_names, output_path):
     plt.close(fig)
 
 
-def main():
+def main(seed=None):
+    if seed is not None:
+        tf.keras.utils.set_random_seed(seed)
+        print(f"[multi-seed] tf.keras.utils.set_random_seed({seed})")
+
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     meta = load_meta()
@@ -389,6 +393,14 @@ def main():
     with open(EVAL_METRICS_PATH, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
+    if seed is not None:
+        seed_model_path = MODEL_DIR / f"best_seed{seed}.keras"
+        seed_eval_path = MODEL_DIR / f"eval_seed{seed}.json"
+        best_model.save(str(seed_model_path))
+        with open(seed_eval_path, "w", encoding="utf-8") as f:
+            json.dump({**metrics, "seed": seed}, f, indent=2)
+        print(f"[multi-seed] Saved {seed_model_path} and {seed_eval_path}")
+
     print(f"Saved best model: {BEST_MODEL_PATH}")
     print(f"Saved final model: {FINAL_MODEL_PATH}")
     print(f"Saved confusion matrix: {CONFUSION_MATRIX_PLOT_PATH}")
@@ -398,4 +410,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=None, help="seed cho weight-init + shuffle; bo trong = mac dinh")
+    args = parser.parse_args()
+    main(seed=args.seed)
