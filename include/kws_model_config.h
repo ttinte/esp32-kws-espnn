@@ -11,12 +11,12 @@ struct ClassAction {
 };
 
 constexpr ClassAction kClassActions[] = {
-    {"no", "fan_off", 0.78f},
-    {"off", "light_off", 0.50f},
-    {"on", "light_on", 0.50f},
-    {"yes", "fan_on", 0.78f},
-    {"zero", "", 0.65f},
-    {"other", "", 1.10f},
+    {"bat_den",  "light_on",  0.55f},
+    {"tat_den",  "light_off", 0.55f},
+    {"bat_quat", "fan_on",    0.55f},
+    {"tat_quat", "fan_off",   0.55f},
+    {"zero",     "",          0.65f},
+    {"other",    "",          1.10f},
 };
 
 constexpr size_t kClassCount = sizeof(kClassActions) / sizeof(kClassActions[0]);

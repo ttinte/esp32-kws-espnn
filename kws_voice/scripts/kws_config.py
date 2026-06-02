@@ -9,7 +9,7 @@ OUTPUT_DIR = ROOT / "kws_output"
 
 NOISE_LABEL = "_noise_"
 OTHER_LABEL = "other"
-CLASS_NAMES = ["no", "off", "on", "yes", "zero", OTHER_LABEL]
+CLASS_NAMES = ["bat_den", "tat_den", "bat_quat", "tat_quat", "zero", OTHER_LABEL]
 KEYWORD_CLASS_NAMES = [name for name in CLASS_NAMES if name != OTHER_LABEL]
 BACKGROUND_CLASS_NAMES = [OTHER_LABEL]
 ALL_DATASET_DIRS = CLASS_NAMES + [NOISE_LABEL]
@@ -68,8 +68,5 @@ SHIFT_MAX_SAMPLES = 1600
 
 MODEL_CLASSES = CLASS_NAMES
 CLASS_WEIGHT_MULTIPLIERS = {
-    "off": 1.35,
-    "on": 1.15,
-    "zero": 1.5,  # uu tien wake word, tach zero khoi no (zero<->no hay lan)
     OTHER_LABEL: 0.85,
 }
