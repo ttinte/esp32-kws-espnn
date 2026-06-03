@@ -38,6 +38,17 @@ constexpr uint8_t WAKE_VOTE_MIN = 2;
 constexpr uint32_t WAKE_LISTEN_WINDOW_MS = 7500;
 constexpr uint32_t WAKE_COOLDOWN_MS = 300;
 
+constexpr uint8_t LCD_ADDRESS = 0x27;
+constexpr uint8_t LCD_COLUMNS = 16;
+constexpr uint8_t LCD_ROWS = 2;
+constexpr const char *LCD_DEFAULT_TOP_LINE = "Awaiting wake..";
+constexpr uint32_t LCD_COMMAND_PREVIEW_MS = 3000;
+constexpr bool SEVEN_SEG_COMMON_ANODE = false;
+
+constexpr uint32_t NO_PRESENCE_TIMEOUT_MS = 15000;
+constexpr uint32_t FULL_OFF_DELAY_MS = 30000;
+constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
+
 extern bool wakeWordActive;
 extern uint32_t wakeWordActivatedMs;
 extern uint32_t lastKwsIdleLogMs;
@@ -47,6 +58,12 @@ extern const char *pendingCommandLabel;
 extern const char *pendingCommandAction;
 extern uint8_t pendingCommandFrames;
 extern bool wakeSettled;
+
+extern bool pirEnabled;
+extern bool tempOffActive;
+extern bool fullPowerOffActive;
+extern bool pirMotionDetected;
+extern uint32_t tempOffStartedMs;
 
 uint32_t nowMs();
 

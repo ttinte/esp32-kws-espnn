@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "kws_engine.h"
 #include "led_indicator.h"
+#include "presence_service.h"
 #include "voice_service.h"
 
 namespace app_state {
@@ -19,6 +20,12 @@ const char *pendingCommandLabel = "";
 const char *pendingCommandAction = nullptr;
 uint8_t pendingCommandFrames = 0;
 bool wakeSettled = false;
+
+bool pirEnabled = false;
+bool tempOffActive = false;
+bool fullPowerOffActive = false;
+bool pirMotionDetected = false;
+uint32_t tempOffStartedMs = 0;
 
 uint32_t nowMs() { return static_cast<uint32_t>(xTaskGetTickCount() * portTICK_PERIOD_MS); }
 }  // namespace app_state
@@ -34,8 +41,9 @@ void kwsTask(void *) {
 }  // namespace
 
 extern "C" void app_main(void) {
+  // INPUT_OUTPUT de presence_service doc lai duoc muc tai (luu/khoi phuc).
   gpio_config_t io_conf = {};
-  io_conf.mode = GPIO_MODE_OUTPUT;
+  io_conf.mode = GPIO_MODE_INPUT_OUTPUT;
   io_conf.pin_bit_mask = (1ULL << app_state::LIGHT_PIN) | (1ULL << app_state::FAN_PIN);
   gpio_config(&io_conf);
   gpio_set_level(static_cast<gpio_num_t>(app_state::LIGHT_PIN), 0);
@@ -48,10 +56,13 @@ extern "C" void app_main(void) {
     return;
   }
 
+  presence_service::init();
 
   xTaskCreatePinnedToCore(kwsTask, "kws", 8192, nullptr, 5, nullptr, 1);
 
   while (true) {
+    presence_service::pollButton();
+    presence_service::update();
     led_indicator::update();
     vTaskDelay(pdMS_TO_TICKS(20));
   }

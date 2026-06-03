@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "kws_engine.h"
+#include "led_indicator.h"
 
 namespace voice_service {
 namespace {
@@ -74,6 +75,8 @@ const char *executeCommand(const char *command) {
   if (!command || command[0] == '\0') {
     return "ignored";
   }
+
+  led_indicator::queueCommand(command);
 
   if (strcmp(command, "light_on") == 0) {
     gpio_set_level(static_cast<gpio_num_t>(LIGHT_PIN), 1);
