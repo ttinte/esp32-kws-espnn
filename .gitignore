@@ -15,6 +15,7 @@ CLAUDE.md
 
 # Keep KWS scripts
 kws_voice/*
+!kws_dataset/
 !kws_voice/scripts/
 !kws_voice/scripts/**
 __pycache__
