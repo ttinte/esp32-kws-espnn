@@ -7,6 +7,8 @@ namespace kws_engine {
 struct Result {
   const char *label;
   const char *command;
+  const char *commandLabel;
+  float commandScore;
   float confidence;
   float wakeScore;
   bool hasCommand;

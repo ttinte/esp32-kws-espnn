@@ -24,8 +24,6 @@ from kws_config import (
     FIXED_DATASET_DIR,
     FRAME_LENGTH,
     FRAME_STEP,
-    GAIN_MAX,
-    GAIN_MIN,
     HISTORY_PATH,
     LOSS_PLOT_PATH,
     MEL_BINS,
@@ -33,9 +31,15 @@ from kws_config import (
     N_FRAMES,
     N_SAMPLES,
     NOISE_MIX_PROBABILITY,
+    REVERB_PROBABILITY,
     SAMPLE_RATE,
     SEED,
     SHIFT_MAX_SAMPLES,
+    SPEC_AUG_TIME_MASK,
+    SPEC_AUG_FREQ_MASK,
+    AGC_TARGET_RMS,
+    AGC_VAD_FLOOR_RMS,
+    AGC_MAX_GAIN,
     TFDATA_DIR,
     LOWER_EDGE_HZ,
     UPPER_EDGE_HZ,
@@ -134,8 +138,15 @@ def augment_wave_np(wave_np):
     shift = np.random.randint(-SHIFT_MAX_SAMPLES, SHIFT_MAX_SAMPLES + 1)
     wave_np = np.roll(wave_np, shift)
 
-    gain = np.random.uniform(GAIN_MIN, GAIN_MAX)
-    wave_np = wave_np * gain
+    # Reverb/echo: gia lap noi xa/phong (chuan hoa RMS o compute_logmel se lo muc).
+    if np.random.rand() < REVERB_PROBABILITY:
+        n_taps = np.random.randint(1, 3)
+        echoed = wave_np.copy()
+        for _ in range(n_taps):
+            delay = np.random.randint(int(0.03 * SAMPLE_RATE), int(0.18 * SAMPLE_RATE))
+            decay = np.random.uniform(0.2, 0.6)
+            echoed[delay:] += decay * wave_np[:-delay]
+        wave_np = echoed
 
     noise_cache = get_noise_cache()
     if len(noise_cache) > 0 and np.random.rand() < NOISE_MIX_PROBABILITY:
@@ -151,6 +162,13 @@ def augment_wave_np(wave_np):
 
 
 def compute_logmel(wave):
+    # Chuan hoa RMS co VAD-gate — PHAI giong het firmware applyAgc.
+    rms = tf.sqrt(tf.reduce_mean(tf.square(wave))) * 32768.0
+    gain = tf.where(rms >= AGC_VAD_FLOOR_RMS,
+                    tf.minimum(AGC_TARGET_RMS / (rms + 1e-9), AGC_MAX_GAIN),
+                    1.0)
+    wave = tf.clip_by_value(wave * gain, -1.0, 1.0)
+
     stft = tf.signal.stft(
         wave,
         frame_length=FRAME_LENGTH,
@@ -181,6 +199,22 @@ def compute_logmel(wave):
     return logmel
 
 
+def spec_augment(feat):
+    # feat: [N_FRAMES, MEL_BINS, 1]. Che 1 dai thoi gian + 1 dai tan so ve muc san log.
+    floor = tf.math.log(1e-6)
+
+    t = tf.random.uniform([], 0, SPEC_AUG_TIME_MASK + 1, dtype=tf.int32)
+    t0 = tf.random.uniform([], 0, tf.maximum(N_FRAMES - t, 1), dtype=tf.int32)
+    f = tf.random.uniform([], 0, SPEC_AUG_FREQ_MASK + 1, dtype=tf.int32)
+    f0 = tf.random.uniform([], 0, tf.maximum(MEL_BINS - f, 1), dtype=tf.int32)
+
+    tmask = tf.logical_and(tf.range(N_FRAMES) >= t0, tf.range(N_FRAMES) < t0 + t)
+    fmask = tf.logical_and(tf.range(MEL_BINS) >= f0, tf.range(MEL_BINS) < f0 + f)
+    mask = tf.logical_or(tmask[:, None], fmask[None, :])
+    mask = mask[:, :, None]
+    return tf.where(mask, tf.fill(tf.shape(feat), floor), feat)
+
+
 def make_ds(pairs, shuffle=True, augment=False):
     paths = [p for p, _ in pairs]
     ys = [y for _, y in pairs]
@@ -195,6 +229,8 @@ def make_ds(pairs, shuffle=True, augment=False):
             wave = tf.py_function(augment_wave_np, [wave], tf.float32)
             wave.set_shape([N_SAMPLES])
         feat = compute_logmel(wave)
+        if augment:
+            feat = spec_augment(feat)
         return feat, y
 
     ds = ds.map(_map, num_parallel_calls=tf.data.AUTOTUNE)

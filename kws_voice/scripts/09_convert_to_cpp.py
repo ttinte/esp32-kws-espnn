@@ -21,6 +21,7 @@ from kws_config import (
     TFDATA_DIR,
     TFLITE_MODEL_PATH,
     UPPER_EDGE_HZ,
+    normalize_rms_vad_np,
 )
 
 
@@ -45,6 +46,7 @@ def load_wav_np(path):
 
 
 def compute_logmel_np(wave):
+    wave = normalize_rms_vad_np(wave)  # PHAI giong het firmware applyAgc + train
     wave_tf = tf.constant(wave, dtype=tf.float32)
     stft = tf.signal.stft(
         wave_tf,
