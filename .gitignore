@@ -14,10 +14,10 @@ managed_components/
 CLAUDE.md
 
 # Keep KWS scripts
-kws_voice/*
-!kws_dataset/
-kws_dataset/wake_up
-kws_dataset/five
-!kws_voice/scripts/
-!kws_voice/scripts/**
+kws_voice/kws_dataset/wake_up
+kws_voice/kws_dataset_fixed
+kws_voice/kws_model
+kws_voice/kws_output
+kws_voice/kws_tfdata
+kws_voice/kws_tiny
 __pycache__
