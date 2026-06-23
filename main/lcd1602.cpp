@@ -43,6 +43,9 @@ void send(uint8_t value, uint8_t mode) {
 }  // namespace
 
 bool init() {
+  ESP_LOGI(TAG, "LCD init start, SDA=%d SCL=%d addr=0x%02X",
+          app_state::I2C_SDA_PIN, app_state::I2C_SCL_PIN, app_state::LCD_ADDRESS);
+
   i2c_master_bus_config_t busConfig = {};
   busConfig.i2c_port = I2C_NUM_0;
   busConfig.sda_io_num = static_cast<gpio_num_t>(app_state::I2C_SDA_PIN);
@@ -55,10 +58,12 @@ bool init() {
     return false;
   }
 
+  ESP_LOGI(TAG, "Probing LCD at 0x%02X...", app_state::LCD_ADDRESS);
   if (i2c_master_probe(s_bus, app_state::LCD_ADDRESS, 100) != ESP_OK) {
     ESP_LOGW(TAG, "LCD 0x%02X not found", app_state::LCD_ADDRESS);
     return false;
   }
+  ESP_LOGI(TAG, "LCD found at 0x%02X", app_state::LCD_ADDRESS);
 
   i2c_device_config_t devConfig = {};
   devConfig.dev_addr_length = I2C_ADDR_BIT_LEN_7;

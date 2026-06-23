@@ -24,6 +24,8 @@ from kws_config import (
     FIXED_DATASET_DIR,
     FRAME_LENGTH,
     FRAME_STEP,
+    GAIN_MAX,
+    GAIN_MIN,
     HISTORY_PATH,
     LOSS_PLOT_PATH,
     MEL_BINS,
@@ -31,16 +33,9 @@ from kws_config import (
     N_FRAMES,
     N_SAMPLES,
     NOISE_MIX_PROBABILITY,
-    REVERB_PROBABILITY,
     SAMPLE_RATE,
     SEED,
     SHIFT_MAX_SAMPLES,
-    SPEC_AUG_TIME_MASK,
-    SPEC_AUG_FREQ_MASK,
-    AGC_TARGET_RMS,
-    AGC_VAD_FLOOR_RMS,
-    AGC_MAX_GAIN,
-    CLASS_TRAIN_REPEATS,
     TFDATA_DIR,
     LOWER_EDGE_HZ,
     UPPER_EDGE_HZ,
@@ -48,7 +43,7 @@ from kws_config import (
 )
 
 BATCH_SIZE = 32
-EPOCHS = 100
+EPOCHS = 80
 LR = 1e-3
 _OTHER_NOISE_SOURCES = None
 _NOISE_CACHE = None
@@ -135,57 +130,27 @@ def load_wav_tf(path):
     return wave
 
 
-def augment_wave_np(wave_np, class_id=None, class_names=None):
+def augment_wave_np(wave_np):
     shift = np.random.randint(-SHIFT_MAX_SAMPLES, SHIFT_MAX_SAMPLES + 1)
     wave_np = np.roll(wave_np, shift)
 
-    # Reverb/echo: gia lap noi xa/phong (chuan hoa RMS o compute_logmel se lo muc).
-    # Round 4: tang reverb/necho "bat" gap doi de mo phong phong to, goc noi
-    # xa (vi "bat" 1 am tiet ngan rat yeu khi xa mic).
-    reverb_prob = REVERB_PROBABILITY
-    if class_names is not None and class_id is not None and class_id < len(class_names):
-        if class_names[class_id] == "bat":
-            reverb_prob = min(1.0, REVERB_PROBABILITY * 1.8)
-    if np.random.rand() < reverb_prob:
-        n_taps = np.random.randint(1, 3)
-        echoed = wave_np.copy()
-        for _ in range(n_taps):
-            delay = np.random.randint(int(0.03 * SAMPLE_RATE), int(0.18 * SAMPLE_RATE))
-            decay = np.random.uniform(0.2, 0.6)
-            echoed[delay:] += decay * wave_np[:-delay]
-        wave_np = echoed
+    gain = np.random.uniform(GAIN_MIN, GAIN_MAX)
+    wave_np = wave_np * gain
 
-    # Round 4: tang noise mix cho "bat" gap 1.4x (tu 0.55 → 0.77) de mo phong
-    # mic INMP441 o moi truong nhieu nen (phong khach, may lanh).
-    noise_prob = NOISE_MIX_PROBABILITY
-    if class_names is not None and class_id is not None and class_id < len(class_names):
-        if class_names[class_id] == "bat":
-            noise_prob = min(1.0, NOISE_MIX_PROBABILITY * 1.4)
     noise_cache = get_noise_cache()
-    if len(noise_cache) > 0 and np.random.rand() < noise_prob:
+    if len(noise_cache) > 0 and np.random.rand() < NOISE_MIX_PROBABILITY:
         noise = noise_cache[np.random.randint(len(noise_cache))]
         start = np.random.randint(0, max(len(noise) - N_SAMPLES, 1))
         noise_chunk = noise[start : start + N_SAMPLES]
         if len(noise_chunk) < N_SAMPLES:
             noise_chunk = np.pad(noise_chunk, (0, N_SAMPLES - len(noise_chunk)))
-        # SNR gap 1.5x (tu 0.05-0.35 → 0.075-0.525) → them nhieu manh hon.
         snr = np.random.uniform(0.05, 0.35)
-        if class_names is not None and class_id is not None and class_id < len(class_names):
-            if class_names[class_id] == "bat":
-                snr = np.random.uniform(0.075, 0.525)
         wave_np = wave_np + snr * noise_chunk
 
     return wave_np.astype(np.float32)
 
 
 def compute_logmel(wave):
-    # Chuan hoa RMS co VAD-gate — PHAI giong het firmware applyAgc.
-    rms = tf.sqrt(tf.reduce_mean(tf.square(wave))) * 32768.0
-    gain = tf.where(rms >= AGC_VAD_FLOOR_RMS,
-                    tf.minimum(AGC_TARGET_RMS / (rms + 1e-9), AGC_MAX_GAIN),
-                    1.0)
-    wave = tf.clip_by_value(wave * gain, -1.0, 1.0)
-
     stft = tf.signal.stft(
         wave,
         frame_length=FRAME_LENGTH,
@@ -216,23 +181,7 @@ def compute_logmel(wave):
     return logmel
 
 
-def spec_augment(feat):
-    # feat: [N_FRAMES, MEL_BINS, 1]. Che 1 dai thoi gian + 1 dai tan so ve muc san log.
-    floor = tf.math.log(1e-6)
-
-    t = tf.random.uniform([], 0, SPEC_AUG_TIME_MASK + 1, dtype=tf.int32)
-    t0 = tf.random.uniform([], 0, tf.maximum(N_FRAMES - t, 1), dtype=tf.int32)
-    f = tf.random.uniform([], 0, SPEC_AUG_FREQ_MASK + 1, dtype=tf.int32)
-    f0 = tf.random.uniform([], 0, tf.maximum(MEL_BINS - f, 1), dtype=tf.int32)
-
-    tmask = tf.logical_and(tf.range(N_FRAMES) >= t0, tf.range(N_FRAMES) < t0 + t)
-    fmask = tf.logical_and(tf.range(MEL_BINS) >= f0, tf.range(MEL_BINS) < f0 + f)
-    mask = tf.logical_or(tmask[:, None], fmask[None, :])
-    mask = mask[:, :, None]
-    return tf.where(mask, tf.fill(tf.shape(feat), floor), feat)
-
-
-def make_ds(pairs, shuffle=True, augment=False, class_names=None):
+def make_ds(pairs, shuffle=True, augment=False):
     paths = [p for p, _ in pairs]
     ys = [y for _, y in pairs]
     ds = tf.data.Dataset.from_tensor_slices((paths, ys))
@@ -240,17 +189,12 @@ def make_ds(pairs, shuffle=True, augment=False, class_names=None):
     if shuffle:
         ds = ds.shuffle(len(paths), seed=SEED, reshuffle_each_iteration=True)
 
-    def _augment_py(wave, class_id):
-        return augment_wave_np(wave.numpy(), int(class_id.numpy()), class_names)
-
     def _map(path, y):
         wave = load_wav_tf(path)
         if augment:
-            wave = tf.py_function(_augment_py, [wave, y], tf.float32)
+            wave = tf.py_function(augment_wave_np, [wave], tf.float32)
             wave.set_shape([N_SAMPLES])
         feat = compute_logmel(wave)
-        if augment:
-            feat = spec_augment(feat)
         return feat, y
 
     ds = ds.map(_map, num_parallel_calls=tf.data.AUTOTUNE)
@@ -273,53 +217,22 @@ def _make_ds_block(x, filters, name_prefix):
     return x
 
 
-def _make_res_ds_block(x, filters, name_prefix):
-    """DS block co residual skip (khi stride=1 va channels khop).
-    Giu duoc gradient → model sau/sau nong, hoc dac trung tot hon."""
-    in_channels = x.shape[-1]
-    residual = x
-    x = tf.keras.layers.DepthwiseConv2D(
-        kernel_size=3, padding="same", use_bias=False, name=f"{name_prefix}_dw"
-    )(x)
-    x = tf.keras.layers.BatchNormalization(name=f"{name_prefix}_dw_bn")(x)
-    x = tf.keras.layers.ReLU(max_value=6.0, name=f"{name_prefix}_dw_act")(x)
-    x = tf.keras.layers.Conv2D(
-        filters, kernel_size=1, use_bias=False, name=f"{name_prefix}_pw"
-    )(x)
-    x = tf.keras.layers.BatchNormalization(name=f"{name_prefix}_pw_bn")(x)
-    if in_channels == filters:
-        x = tf.keras.layers.Add(name=f"{name_prefix}_add")([x, residual])
-    x = tf.keras.layers.ReLU(max_value=6.0, name=f"{name_prefix}_pw_act")(x)
-    return x
-
-
 def build_ds_cnn(num_classes):
-    """DS-CNN lớn (round 3, sau khi 2 round DS-CNN nho bi overfit wake_up):
-      - init_conv 32 (gap doi 16), stride 2
-      - 5 blocks: 32 → 32 → 48 → 48 → 64
-      - 2 block cuoi co residual skip
-      - dropout nhe 0.1 truoc dense (chong overfit)
-    Model lon hon ~4-5x (~50-60KB int8), ESP32-S3 + espnn accelerator chay
-    van nhanh (<30ms/inference), nhan dien tot hon nhieu so voi 3-block 16-16-24.
-    """
     inputs = tf.keras.Input(shape=(N_FRAMES, MEL_BINS, 1))
 
     x = tf.keras.layers.Conv2D(
-        32, kernel_size=3, strides=2, padding="same", use_bias=False, name="init_conv"
+        16, kernel_size=3, strides=2, padding="same", use_bias=False, name="init_conv"
     )(inputs)
     x = tf.keras.layers.BatchNormalization(name="init_conv_bn")(x)
     x = tf.keras.layers.ReLU(max_value=6.0, name="init_conv_act")(x)
 
-    x = _make_ds_block(x, 32, name_prefix="block1")
-    x = _make_ds_block(x, 32, name_prefix="block2")
-    x = _make_ds_block(x, 48, name_prefix="block3")
-    x = _make_res_ds_block(x, 48, name_prefix="block4")
-    x = _make_res_ds_block(x, 64, name_prefix="block5")
+    x = _make_ds_block(x, 16, name_prefix="block1")
+    x = _make_ds_block(x, 16, name_prefix="block2")
+    x = _make_ds_block(x, 24, name_prefix="block3")
 
     x = tf.keras.layers.GlobalAveragePooling2D(name="gap")(x)
-    x = tf.keras.layers.Dropout(0.1, name="head_dropout")(x)
     outputs = tf.keras.layers.Dense(num_classes, activation="softmax", name="logits")(x)
-    return tf.keras.Model(inputs, outputs, name="ds_cnn_kws_lg")
+    return tf.keras.Model(inputs, outputs, name="ds_cnn_kws")
 
 
 def plot_history(history_dict):
@@ -382,32 +295,6 @@ def compute_class_weights(train_pairs, class_names):
     return class_weights
 
 
-def repeat_train_pairs(train_pairs, class_names):
-    repeat_by_id = {
-        class_names.index(class_name): repeat
-        for class_name, repeat in CLASS_TRAIN_REPEATS.items()
-        if class_name in class_names and repeat > 1
-    }
-    if not repeat_by_id:
-        return train_pairs
-
-    expanded = []
-    added_by_id = {class_id: 0 for class_id in repeat_by_id}
-    for pair in train_pairs:
-        expanded.append(pair)
-        repeat = repeat_by_id.get(pair[1], 1)
-        if repeat > 1:
-            extra = repeat - 1
-            expanded.extend([pair] * extra)
-            added_by_id[pair[1]] += extra
-
-    print(f"\n=== TRAIN OVERSAMPLE ===")
-    for class_id, added in sorted(added_by_id.items()):
-        print(f"{class_names[class_id]} repeat={repeat_by_id[class_id]}, added={added}")
-    print(f"train_total={len(train_pairs)} -> {len(expanded)}")
-    return expanded
-
-
 def save_confusion_matrix_plot(cm, class_names, output_path):
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(cm, interpolation="nearest", cmap="Blues")
@@ -446,10 +333,8 @@ def main(seed=None):
     train_pairs = load_pairs(TFDATA_DIR / "train.txt")
     val_pairs = load_pairs(TFDATA_DIR / "val.txt")
     test_pairs = load_pairs(TFDATA_DIR / "test.txt")
-    train_pairs_for_weights = train_pairs
-    train_pairs = repeat_train_pairs(train_pairs, class_names)
 
-    train_ds = make_ds(train_pairs, shuffle=True, augment=True, class_names=class_names)
+    train_ds = make_ds(train_pairs, shuffle=True, augment=True)
     val_ds = make_ds(val_pairs, shuffle=False, augment=False)
     test_ds = make_ds(test_pairs, shuffle=False, augment=False)
 
@@ -462,7 +347,7 @@ def main(seed=None):
         metrics=["accuracy"],
     )
 
-    class_weights = compute_class_weights(train_pairs_for_weights, class_names)
+    class_weights = compute_class_weights(train_pairs, class_names)
 
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(str(BEST_MODEL_PATH), monitor="val_accuracy", save_best_only=True),

@@ -14,7 +14,8 @@ managed_components/
 CLAUDE.md
 
 # Keep KWS scripts
-kws_voice/kws_dataset/wake_up
+kws_voice/kws_dataset/zero
+kws_voice/kws_dataset/_noise_
 kws_voice/kws_dataset_fixed
 kws_voice/kws_model
 kws_voice/kws_output

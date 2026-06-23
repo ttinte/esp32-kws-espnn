@@ -41,7 +41,6 @@ void kwsTask(void *) {
 }  // namespace
 
 extern "C" void app_main(void) {
-  // INPUT_OUTPUT de presence_service doc lai duoc muc tai (luu/khoi phuc).
   gpio_config_t io_conf = {};
   io_conf.mode = GPIO_MODE_INPUT_OUTPUT;
   io_conf.pin_bit_mask = (1ULL << app_state::LIGHT_PIN) | (1ULL << app_state::FAN_PIN);

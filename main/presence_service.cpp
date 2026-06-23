@@ -36,7 +36,6 @@ void turnOffLoadsFully() {
   tempOffStartedMs = 0;
   led_indicator::sleepLcd();
   fullPowerOffActive = true;
-  kws_engine::setPaused(true);
 }
 
 void restoreLoads() {

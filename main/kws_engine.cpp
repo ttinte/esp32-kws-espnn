@@ -110,9 +110,7 @@ void buildMelWeights() {
 // Ring buffer: 2 seconds of audio. micTask writes continuously,
 // poll() snapshots the most recent 1 second for each inference cycle.
 constexpr size_t kRingBufSamples = AUDIO_SAMPLE_RATE * 2;
-// Stable used >>12, but this hardware clips hard there with the current model.
-// >>14 is the middle ground: far speech is above the gate without saturating.
-constexpr int kMicSampleShift = 14;
+constexpr int kMicSampleShift = 12;
 constexpr TickType_t kPausedTaskDelay = pdMS_TO_TICKS(100);
 
 int16_t ringBuffer[kRingBufSamples];
@@ -218,25 +216,6 @@ void computeLogMel(const int16_t *samples) {
   }
 }
 
-// AGC: chuan hoa cua so 1s ve AGC_TARGET_RMS truoc log-mel, VAD-gated. PHAI
-// giong het chuan hoa luc train (kws_config.normalize_rms_vad_np / compute_logmel).
-void applyAgc(int16_t *buf, size_t n) {
-  uint64_t sumSq = 0;
-  for (size_t i = 0; i < n; ++i) {
-    sumSq += static_cast<uint64_t>(static_cast<int32_t>(buf[i]) * static_cast<int32_t>(buf[i]));
-  }
-  const float rms = sqrtf(static_cast<float>(sumSq) / static_cast<float>(n));
-  if (rms < AGC_VAD_FLOOR_RMS) return;  // im lang/nhieu nen: giu nguyen -> other
-  float gain = AGC_TARGET_RMS / rms;
-  if (gain > AGC_MAX_GAIN) gain = AGC_MAX_GAIN;
-  for (size_t i = 0; i < n; ++i) {
-    int32_t s = static_cast<int32_t>(lroundf(buf[i] * gain));
-    if (s > 32767) s = 32767;
-    else if (s < -32768) s = -32768;
-    buf[i] = static_cast<int16_t>(s);
-  }
-}
-
 void quantizeInput() {
   const float scale = inputTensor->params.scale;
   const int zeroPoint = inputTensor->params.zero_point;
@@ -319,29 +298,6 @@ const char *findLabelByScore(float *probs, size_t *idx) {
   return kws_model_config::kClassActions[best].label;
 }
 
-size_t findClassIndex(const char *label) {
-  for (size_t i = 0; i < KWS_NUM_CLASSES; ++i) {
-    if (strcmp(kws_model_config::kClassActions[i].label, label) == 0) {
-      return i;
-    }
-  }
-  return KWS_NUM_CLASSES;
-}
-
-size_t findBestCommandIndex(const float *probs) {
-  size_t best = KWS_NUM_CLASSES;
-  float bestScore = -1.0f;
-  for (size_t i = 0; i < KWS_NUM_CLASSES; ++i) {
-    const auto &action = kws_model_config::kClassActions[i];
-    if (action.command[0] == '\0') continue;
-    if (probs[i] > bestScore) {
-      bestScore = probs[i];
-      best = i;
-    }
-  }
-  return best;
-}
-
 }  // namespace
 
 bool init() {
@@ -395,23 +351,7 @@ bool poll(Result &result) {
   }
   uint32_t readMs = static_cast<uint32_t>((esp_timer_get_time() - t0) / 1000);
 
-  // Audio stats o muc THAT (pre-AGC) de log/gate phan anh dung muc tin hieu.
-  int16_t audioMin = 32767;
-  int16_t audioMax = -32768;
-  uint64_t sumSquares = 0;
-  for (size_t i = 0; i < AUDIO_DURATION_SAMPLES; ++i) {
-    const int16_t s = audioBuffer[i];
-    if (s < audioMin) audioMin = s;
-    if (s > audioMax) audioMax = s;
-    sumSquares += static_cast<uint64_t>(static_cast<int32_t>(s) * static_cast<int32_t>(s));
-  }
-  const int32_t negMin = -static_cast<int32_t>(audioMin);
-  const int32_t peak32 = audioMax > negMin ? audioMax : negMin;
-  const int16_t audioPeak = peak32 > 32767 ? 32767 : static_cast<int16_t>(peak32);
-  const float audioRms = sqrtf(static_cast<float>(sumSquares) / static_cast<float>(AUDIO_DURATION_SAMPLES));
-
   t0 = esp_timer_get_time();
-  applyAgc(audioBuffer, AUDIO_DURATION_SAMPLES);  // chuan hoa muc truoc log-mel
   computeLogMel(audioBuffer);
   quantizeInput();
   memcpy(inputTensor->data.int8, quantizedFeature, sizeof(quantizedFeature));
@@ -442,23 +382,14 @@ bool poll(Result &result) {
     if (top3 == bestIdx || top3 == top2 || probs[i] > probs[top3]) top3 = i;
   }
 
-  const size_t wakeIdx = findClassIndex(WAKE_WORD_LABEL);
-  const size_t commandIdx = findBestCommandIndex(probs);
-  const auto &bestAction = kws_model_config::kClassActions[bestIdx];
-  const bool hasWakeClass = wakeIdx < KWS_NUM_CLASSES;
-  const bool hasCommandClass = commandIdx < KWS_NUM_CLASSES;
-  const float wakeScore = hasWakeClass ? probs[wakeIdx] : 0.0f;
-  const float commandScore = hasCommandClass ? probs[commandIdx] : 0.0f;
-  const auto &commandAction = hasCommandClass ? kws_model_config::kClassActions[commandIdx] : bestAction;
+  const auto &action = kws_model_config::kClassActions[bestIdx];
   result.label = bestLabel;
-  result.command = hasCommandClass ? commandAction.command : "";
-  result.commandLabel = hasCommandClass ? commandAction.label : "";
-  result.commandScore = commandScore;
+  result.command = action.command;
   result.confidence = probs[bestIdx];
-  result.wakeScore = wakeScore;
-  result.hasCommand = hasCommandClass && commandScore >= commandAction.threshold;
+  result.wakeScore = 0.0f;
+  result.hasCommand = action.command[0] != '\0' && probs[bestIdx] >= action.threshold;
 
-  const bool wakeFrame = hasWakeClass && wakeScore >= kws_model_config::kClassActions[wakeIdx].threshold;
+  const bool wakeFrame = strcmp(bestLabel, WAKE_WORD_LABEL) == 0 && probs[bestIdx] >= action.threshold;
   wakeVoteRing[wakeVotePos] = wakeFrame;
   wakeVotePos = (wakeVotePos + 1) % WAKE_VOTE_WINDOW;
   uint8_t wakeVotes = 0;
@@ -470,6 +401,19 @@ bool poll(Result &result) {
   result.top2Score = probs[top2];
   result.top3Label = kws_model_config::kClassActions[top3].label;
   result.top3Score = probs[top3];
+  int16_t audioMin = 32767;
+  int16_t audioMax = -32768;
+  uint64_t sumSquares = 0;
+  for (size_t i = 0; i < AUDIO_DURATION_SAMPLES; ++i) {
+    const int16_t s = audioBuffer[i];
+    if (s < audioMin) audioMin = s;
+    if (s > audioMax) audioMax = s;
+    sumSquares += static_cast<uint64_t>(static_cast<int32_t>(s) * static_cast<int32_t>(s));
+  }
+  const int32_t negMin = -static_cast<int32_t>(audioMin);
+  const int32_t peak32 = audioMax > negMin ? audioMax : negMin;
+  const int16_t audioPeak = peak32 > 32767 ? 32767 : static_cast<int16_t>(peak32);
+  const float audioRms = sqrtf(static_cast<float>(sumSquares) / static_cast<float>(AUDIO_DURATION_SAMPLES));
 
   result.audioMin = audioMin;
   result.audioMax = audioMax;

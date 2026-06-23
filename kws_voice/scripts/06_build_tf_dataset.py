@@ -13,7 +13,6 @@ from kws_config import (
     N_SAMPLES,
     SAMPLE_RATE,
     TFDATA_DIR,
-    WAKE_TARGET_COUNT,
     WAKE_WORD,
     NOISE_LABEL,
     OTHER_LABEL,
@@ -105,15 +104,7 @@ def list_files(validation_set, testing_set):
         if not class_dir.exists():
             continue
 
-        wav_paths = sorted(class_dir.glob("*.wav"))
-        if class_name == WAKE_WORD and WAKE_TARGET_COUNT is not None and len(wav_paths) > WAKE_TARGET_COUNT:
-            wav_paths = sorted(
-                wav_paths,
-                key=lambda p: hashlib.sha1(infer_group_key(class_name, p).encode("utf-8")).hexdigest(),
-            )[:WAKE_TARGET_COUNT]
-            wav_paths = sorted(wav_paths)
-
-        for wav_path in wav_paths:
+        for wav_path in sorted(class_dir.glob("*.wav")):
             split_name = assign_split(class_name, wav_path, validation_set, testing_set)
             splits[split_name].append((str(wav_path), class_index))
             counts_by_class[class_name][split_name] += 1

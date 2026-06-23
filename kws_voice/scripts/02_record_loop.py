@@ -8,9 +8,12 @@ from scipy.io.wavfile import write
 from kws_config import CLASS_NAMES, CLIP_DURATION_SECONDS, DATASET_DIR, N_SAMPLES, SAMPLE_RATE
 
 
+ALLOWED_LABELS = set(CLASS_NAMES)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--label", required=True, help="ten class can thu am")
+    parser.add_argument("--label", required=True, help=f"one of: {', '.join(CLASS_NAMES)}")
     parser.add_argument("--device", type=int, default=None, help="microphone device index")
     parser.add_argument("--seconds", type=float, default=CLIP_DURATION_SECONDS, help="clip duration in seconds")
     return parser.parse_args()
@@ -19,8 +22,8 @@ def parse_args():
 def main():
     args = parse_args()
     label = args.label.strip().lower()
-    if label not in CLASS_NAMES:
-        print(f"[Warning:] '{label}' is not in CLASS_NAMES.")
+    if label not in ALLOWED_LABELS:
+        raise ValueError(f"Label khong hop le: {label}. Cho phep: {sorted(ALLOWED_LABELS)}")
 
     output_dir = DATASET_DIR / label
     output_dir.mkdir(parents=True, exist_ok=True)

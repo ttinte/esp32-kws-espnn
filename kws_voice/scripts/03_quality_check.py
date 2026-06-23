@@ -3,9 +3,7 @@ import numpy as np
 
 from kws_config import (
     ALL_DATASET_DIRS,
-    CLASS_NAMES,
     NOISE_LABEL,
-    OTHER_LABEL,
     CLIPPING_ABS_THRESHOLD,
     CLIPPING_RATIO_THRESHOLD,
     DATASET_DIR,
@@ -15,72 +13,8 @@ from kws_config import (
     SAMPLE_RATE,
 )
 
-# INMP441 on ESP32-S3 firmware (I2S 16-bit, no AGC): normal speech ~30-50cm → RMS 800-5000.
-# Targets: RMS 800-6000, clipping < 1% of files.
-_RMS_LOW = 300
-_RMS_HIGH = 12000
-_CLIP_FILE_RATIO = 0.01   # warn if >1% samples clipped in a file
-
-
-def _gain_summary():
-    print("=== GAIN SUMMARY (INMP441 target: RMS 800-6000, clip<1%) ===")
-    all_rms = {}
-    known = set(CLASS_NAMES)
-    all_labels = sorted(d.name for d in DATASET_DIR.iterdir() if d.is_dir())
-    for label in all_labels:
-        label_dir = DATASET_DIR / label
-        if not label_dir.exists():
-            continue
-        rms_list = []
-        clipped_files = 0
-        total = 0
-        for wav_path in sorted(label_dir.glob("*.wav")):
-            try:
-                fs, audio = wavfile.read(wav_path)
-            except Exception:
-                continue
-            if audio.ndim > 1:
-                audio = audio[:, 0]
-            total += 1
-            rms_list.append(int(np.sqrt(np.mean(audio.astype(np.int32) ** 2))))
-            clip_ratio = np.sum(np.abs(audio) >= CLIPPING_ABS_THRESHOLD) / max(len(audio), 1)
-            if clip_ratio > _CLIP_FILE_RATIO:
-                clipped_files += 1
-
-        if not rms_list:
-            continue
-        rms_arr = np.array(rms_list)
-        med = int(np.median(rms_arr))
-        p10 = int(np.percentile(rms_arr, 10))
-        p90 = int(np.percentile(rms_arr, 90))
-        clip_pct = 100 * clipped_files / total if total else 0
-        all_rms[label] = med
-
-        if med > _RMS_HIGH or clip_pct > 5:
-            status = "⚠ QUA TO / CLIP - ha gain"
-        elif med < _RMS_LOW:
-            status = "⚠ QUA NHO - tang gain"
-        else:
-            status = "OK"
-
-        tag = "" if label in known else "  [chua trong CLASS_NAMES]"
-        print(f"  {label:<12} files={total:4d}  RMS p10={p10:5d} med={med:5d} p90={p90:5d}"
-              f"  clipped_files={clipped_files:3d} ({clip_pct:.0f}%)  {status}{tag}")
-
-    if len(all_rms) >= 2:
-        vals = list(all_rms.values())
-        ratio = max(vals) / max(min(vals), 1)
-        if ratio > 5:
-            print(f"\n  [!] Chenh lech gain giua cac class qua lon (max/min={ratio:.0f}x) -"
-                  " model se hoc bien do thay vi am hoc. Can thu lai cho dong deu.")
-        else:
-            print(f"\n  [OK] Cac class tuong doi dong deu (max/min={ratio:.1f}x)")
-    print()
-
 
 def main():
-    _gain_summary()
-
     bad_duration = []
     bad_samplerate = []
     clipped = []
