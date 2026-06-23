@@ -37,11 +37,13 @@ MIC_AGGREGATE_WINDOWS = 5
 MIC_RMS_FLOOR = 0.0030
 # Neu toan bo clip mic chi quanh muc nhieu nen, ep ve other thay vi de model
 # tuong tuong thanh wake_up. Normal speech trong project thuong cao hon muc nay.
-MIC_NO_SPEECH_RMS = 220.0
-MIC_NO_SPEECH_PEAK = 1200.0
-LIVE_BAT_PROMOTE_MIN = 0.07
-LIVE_TAT_PROMOTE_MIN = 0.15
-LIVE_WAKE_PROMOTE_MAX = 0.95
+MIC_NO_SPEECH_RMS = 420.0
+MIC_NO_SPEECH_PEAK = 2400.0
+MIC_NO_SPEECH_RMS_RATIO = 1.35
+MIC_NO_SPEECH_PEAK_RATIO = 2.20
+LIVE_BAT_PROMOTE_MIN = 0.045
+LIVE_TAT_PROMOTE_MIN = 0.07
+LIVE_WAKE_PROMOTE_MAX = 0.92
 BACKGROUND_CLASSES = set(BACKGROUND_CLASS_NAMES)
 
 
@@ -243,6 +245,8 @@ def select_best_window(wave, predictor, class_names, debug=False):
     """
     background_indices = {i for i, name in enumerate(class_names) if name in BACKGROUND_CLASSES}
     candidates = []
+    rms_values = []
+    peak_values = []
     max_rms = 0.0
     max_peak = 0.0
     window_debug = []
@@ -250,6 +254,8 @@ def select_best_window(wave, predictor, class_names, debug=False):
     for start, chunk in build_mic_windows(wave):
         rms = float(np.sqrt(np.mean(np.square(chunk))) * 32768.0)
         peak = float(np.max(np.abs(chunk)) * 32768.0)
+        rms_values.append(rms)
+        peak_values.append(peak)
         max_rms = max(max_rms, rms)
         max_peak = max(max_peak, peak)
         energy_score = rms + 0.08 * peak
@@ -265,13 +271,24 @@ def select_best_window(wave, predictor, class_names, debug=False):
         if rms >= MIC_RMS_FLOOR * 32768.0:
             candidates.append((energy_score, start, chunk))
 
-    if (max_rms < MIC_NO_SPEECH_RMS and max_peak < MIC_NO_SPEECH_PEAK) or not candidates:
+    median_rms = float(np.median(rms_values)) if rms_values else 0.0
+    median_peak = float(np.median(peak_values)) if peak_values else 0.0
+    low_absolute_energy = max_rms < MIC_NO_SPEECH_RMS and max_peak < MIC_NO_SPEECH_PEAK
+    flat_background = (
+        median_rms > 0.0
+        and max_rms < median_rms * MIC_NO_SPEECH_RMS_RATIO
+        and max_peak < max(MIC_NO_SPEECH_PEAK, median_peak * MIC_NO_SPEECH_PEAK_RATIO)
+    )
+    if low_absolute_energy or flat_background or not candidates:
         probs = np.zeros(len(class_names), dtype=np.float32)
         if background_indices:
             probs[next(iter(background_indices))] = 1.0
         if debug:
             print_energy_debug(window_debug, prefix="    ")
-            print(f"    [silence] max_rms={max_rms:.0f} max_peak={max_peak:.0f} -> other")
+            print(
+                f"    [silence] max_rms={max_rms:.0f} med_rms={median_rms:.0f} "
+                f"max_peak={max_peak:.0f} med_peak={median_peak:.0f} -> other"
+            )
         return 0, probs, None
 
     selected = sorted(candidates, key=lambda item: item[0], reverse=True)[:MIC_AGGREGATE_WINDOWS]
