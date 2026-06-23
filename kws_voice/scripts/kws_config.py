@@ -20,6 +20,15 @@ DATASET_LABELS = tuple(ALL_DATASET_DIRS)
 OTHER_TARGET_COUNT = 5000
 OTHER_NOISE_SOURCE_FRACTION = 0.75
 OTHER_NOISE_MANIFEST_PATH = DATASET_DIR / "other_noise_manifest.json"
+# Round 6: giu wake_up du mau de khong mat wake, nhung van thap hon class other.
+WAKE_TARGET_COUNT = 1500
+# Lap lai mot so class trong train set de moi epoch thay nhieu bien the augment
+# hon, khong nhan doi file tren dia.
+CLASS_TRAIN_REPEATS = {
+    "bat": 3,
+    "tat": 3,
+    "quay": 2,
+}
 
 SAMPLE_RATE = 16000
 CLIP_DURATION_SECONDS = 1.0
@@ -87,6 +96,15 @@ def normalize_rms_vad_np(wave):
     return _np.clip(wave * gain, -1.0, 1.0)
 
 MODEL_CLASSES = CLASS_NAMES
+# Round 6:
+#  - bat/tat: tang recall live mic, vi dang bi wake_up hut ve.
+#  - wake_up: tang lai so voi round 5 de khong mat wake_up that.
+#  - quay/dung: gan default vi da on dinh.
 CLASS_WEIGHT_MULTIPLIERS = {
-    OTHER_LABEL: 0.85,
+    "bat":     2.0,
+    "tat":     1.8,
+    "quay":    1.1,
+    "dung":    1.0,
+    WAKE_WORD: 0.5,
+    OTHER_LABEL: 1.0,
 }
